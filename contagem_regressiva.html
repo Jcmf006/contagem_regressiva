@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Contador regressivo - Compromisso</title>
+<style>
+:root { --bg: #0f172a; --card:#0b1220; --accent:#60a5fa; --text:#e6eef8; }
+*{box-sizing:border-box}
+body{font-family:Inter,system-ui,Arial,sans-serif;background:linear-gradient(135deg,#0f172a,#071034);color:var(--text);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+.container{max-width:720px;width:100%;background:rgba(255,255,255,0.03);padding:24px;border-radius:12px;box-shadow:0 6px 20px rgba(2,6,23,0.6)}
+.header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+.h1{font-size:1.25rem}
+.controls{display:flex;gap:8px;flex-wrap:wrap}
+input,button,select{padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.08);background:transparent;color:var(--text);font-size:0.95rem}
+button{cursor:pointer;background:var(--accent);color:#04233a;border:none}
+.countdown{display:flex;gap:12px;justify-content:center;font-weight:700;font-size:1.75rem;margin:20px 0}
+.unit{background:rgba(255,255,255,0.03);padding:12px 16px;border-radius:8px;text-align:center;min-width:74px}
+.small{font-size:0.8rem;color:rgba(255,255,255,0.7)}
+.footer{display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap}
+.linkbox{margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+.copy{background:transparent;border:1px dashed rgba(255,255,255,0.1);padding:8px;border-radius:8px;color:var(--text)}
+.notice{font-size:0.95rem;color:rgba(255,255,255,0.9);text-align:center;margin-top:8px}
+@media(max-width:480px){.countdown{font-size:1.25rem}.unit{min-width:56px;padding:8px}}
+</style>
+</head>
+<body>
+<div class="container" role="main">
+  <div class="header">
+    <div>
+      <div class="h1">Contador regressivo</div>
+      <div class="small">Defina a data/hora do compromisso e gere um link para compartilhar.</div>
+    </div>
+    <div class="small" aria-hidden="true">⏳</div>
+  </div>
+
+  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+    <input id="datetime" type="datetime-local" aria-label="Data e hora do compromisso">
+    <input id="message" type="text" placeholder="Mensagem (ex: Encontro às 19h!)" style="flex:1;min-width:150px" aria-label="Mensagem do lembrete">
+    <button id="setBtn" title="Iniciar contagem">Iniciar</button>
+    <button id="genLink" title="Gerar link com a data/hora">Gerar link</button>
+  </div>
+
+  <div class="countdown" id="countdown" aria-live="polite" style="margin-top:22px">
+    <div class="unit"><div id="days">--</div><div class="small">dias</div></div>
+    <div class="unit"><div id="hours">--</div><div class="small">hs</div></div>
+    <div class="unit"><div id="minutes">--</div><div class="small">min</div></div>
+    <div class="unit"><div id="seconds">--</div><div class="small">s</div></div>
+  </div>
+
+  <div class="notice" id="notice">Ainda não há um compromisso definido.</div>
+
+  <div class="linkbox" id="linkbox" style="display:none">
+    <input id="shareLink" class="copy" readonly style="min-width:220px" aria-label="Link para compartilhar">
+    <button id="copyBtn">Copiar link</button>
+    <a id="whatsBtn" href="#" target="_blank" rel="noopener" style="text-decoration:none"><button>Enviar por WhatsApp</button></a>
+  </div>
+
+  <div class="footer" style="margin-top:12px">
+    <button id="resetBtn" style="background:transparent;border:1px solid rgba(255,255,255,0.06)">Redefinir</button>
+    <div class="small">Abra este arquivo localmente para testar. Para compartilhar com alguém, hospede em GitHub Pages/Netlify/Vercel.</div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const el = {
+    datetime: document.getElementById('datetime'),
+    message: document.getElementById('message'),
+    setBtn: document.getElementById('setBtn'),
+    genLink: document.getElementById('genLink'),
+    days: document.getElementById('days'),
+    hours: document.getElementById('hours'),
+    minutes: document.getElementById('minutes'),
+    seconds: document.getElementById('seconds'),
+    notice: document.getElementById('notice'),
+    linkbox: document.getElementById('linkbox'),
+    shareLink: document.getElementById('shareLink'),
+    copyBtn: document.getElementById('copyBtn'),
+    whatsBtn: document.getElementById('whatsBtn'),
+    resetBtn: document.getElementById('resetBtn')
+  };
+
+  let targetTime = null;
+  let timer = null;
+  const params = new URLSearchParams(window.location.search);
+  if(params.has('target')){
+    const t = params.get('target');
+    // try parsing target - assume format YYYY-MM-DDTHH:mm (local)
+    targetTime = new Date(t);
+    const msg = params.get('msg') || '';
+    if(msg) el.message.value = decodeURIComponent(msg);
+    if(!isNaN(targetTime)) {
+      el.notice.textContent = 'Contagem iniciada para ' + targetTime.toLocaleString();
+      startTimer();
+    } else {
+      targetTime = null;
+    }
+  }
+
+  function toLocalInputString(date){
+    // returns YYYY-MM-DDTHH:MM suitable for datetime-local
+    const tz = date.getTimezoneOffset();
+    const local = new Date(date.getTime() - (tz * 60000));
+    return local.toISOString().slice(0,16);
+  }
+
+  function updateDisplay(diff){
+    if(diff <= 0){
+      clearInterval(timer);
+      timer = null;
+      el.days.textContent = '00';
+      el.hours.textContent = '00';
+      el.minutes.textContent = '00';
+      el.seconds.textContent = '00';
+      el.notice.textContent = (el.message.value ? el.message.value + ' — Chegou!' : 'O compromisso chegou!');
+      return;
+    }
+    const s = Math.floor(diff / 1000);
+    const days = Math.floor(s / 86400);
+    const hours = Math.floor((s % 86400) / 3600);
+    const minutes = Math.floor((s % 3600) / 60);
+    const seconds = s % 60;
+    el.days.textContent = String(days).padStart(2,'0');
+    el.hours.textContent = String(hours).padStart(2,'0');
+    el.minutes.textContent = String(minutes).padStart(2,'0');
+    el.seconds.textContent = String(seconds).padStart(2,'0');
+    el.notice.textContent = 'Faltam ' + (days>0?days+' dias, ':'') + hours + 'h ' + minutes + 'm ' + seconds + 's — ' + (el.message.value||'Seu compromisso');
+  }
+
+  function tick(){
+    const now = new Date();
+    const diff = targetTime - now;
+    updateDisplay(diff);
+  }
+
+  function startTimer(){
+    if(!targetTime || isNaN(targetTime)) return;
+    if(timer) clearInterval(timer);
+    tick();
+    timer = setInterval(tick, 1000);
+    el.linkbox.style.display = 'flex';
+    // populate share link
+    const base = (location.protocol === 'file:') ? location.href.split('?')[0] : window.location.origin + window.location.pathname;
+    const targetISO = toLocalInputString(targetTime);
+    const msg = encodeURIComponent(el.message.value || '');
+    const link = base + '?target=' + targetISO + (msg ? '&msg=' + msg : '');
+    el.shareLink.value = link;
+    el.whatsBtn.href = 'https://wa.me/?text=' + encodeURIComponent((el.message.value ? el.message.value + ' — ' : '') + 'Veja: ' + el.shareLink.value);
+  }
+
+  el.setBtn.addEventListener('click', () => {
+    const val = el.datetime.value;
+    if(!val){ alert('Escolha data e hora'); return; }
+    targetTime = new Date(val);
+    if(isNaN(targetTime)){ alert('Data inválida'); return; }
+    startTimer();
+  });
+
+  el.genLink.addEventListener('click', ()=>{
+    const val = el.datetime.value;
+    if(!val){ alert('Escolha data e hora para gerar o link'); return; }
+    targetTime = new Date(val);
+    startTimer();
+  });
+
+  el.copyBtn.addEventListener('click', async ()=>{
+    try{
+      await navigator.clipboard.writeText(el.shareLink.value);
+      el.copyBtn.textContent = 'Copiado!';
+      setTimeout(()=> el.copyBtn.textContent = 'Copiar link', 1500);
+    }catch(e){
+      // fallback: select text so user can Ctrl+C
+      el.shareLink.select();
+      el.copyBtn.textContent = 'Copie (Ctrl+C)';
+      setTimeout(()=> el.copyBtn.textContent = 'Copiar link', 1500);
+    }
+  });
+
+  el.resetBtn.addEventListener('click', ()=>{
+    if(timer) clearInterval(timer);
+    timer = null;
+    targetTime = null;
+    el.days.textContent='--';
+    el.hours.textContent='--';
+    el.minutes.textContent='--';
+    el.seconds.textContent='--';
+    el.notice.textContent='Ainda não há um compromisso definido.';
+    el.linkbox.style.display = 'none';
+    el.shareLink.value = '';
+    history.replaceState({},'',window.location.pathname);
+  });
+
+})();
+</script>
+</body>
+</html>
